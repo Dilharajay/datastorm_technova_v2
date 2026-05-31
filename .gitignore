@@ -1,0 +1,41 @@
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*.pyd
+.Python
+
+# Packaging and build outputs
+build/
+dist/
+wheels/
+*.egg-info/
+.eggs/
+
+# Test and analysis cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Notebook artifacts
+.ipynb_checkpoints/
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local project data and pipeline outputs
+data/raw/*
+data/extracted/*
+data/bronze/*
+data/silver/*
+data/gold/*
