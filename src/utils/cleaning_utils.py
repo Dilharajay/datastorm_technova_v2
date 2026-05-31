@@ -9,9 +9,16 @@ These functions are intentionally composable:
 from __future__ import annotations
 
 import logging
+from pathlib import Path
+import tempfile
+from typing import Optional
+import urllib.request
 
 import numpy as np
 import pandas as pd
+
+import geopandas as gpd
+from shapely.geometry import Point
 
 log = logging.getLogger("pipeline.cleaning")
 
@@ -322,4 +329,189 @@ def fix_coords(
         return pd.Series({lat_col: lat, lon_col: lon, "coord_status": "Valid"})
 
     return pd.Series({lat_col: lat, lon_col: lon, "coord_status": "Out of Bounds"})
+
+
+def clean_outlet_coordinates_basic(
+    df: pd.DataFrame,
+    *,
+    lat_col: str = "Latitude",
+    lon_col: str = "Longitude",
+    status_col: str = "coord_status",
+    valid_statuses: tuple[str, ...] = ("Valid", "Swapped and Fixed"),
+) -> pd.DataFrame:
+    """Apply notebook coordinate cleaning (drop nulls, numeric cast, swap-fix, valid filter)."""
+    clean = df.copy()
+    before_rows = len(clean)
+
+    if lat_col not in clean.columns or lon_col not in clean.columns:
+        missing = [col for col in (lat_col, lon_col) if col not in clean.columns]
+        log.warning("Skipped outlet coordinate cleaning; missing column(s): %s", ", ".join(missing))
+        return clean
+
+    clean = clean.dropna(subset=[lat_col, lon_col]).copy()
+    clean[lat_col] = pd.to_numeric(clean[lat_col], errors="coerce")
+    clean[lon_col] = pd.to_numeric(clean[lon_col], errors="coerce")
+    clean = clean.dropna(subset=[lat_col, lon_col]).copy()
+
+    geo_status = clean.apply(fix_coords, axis=1, lat_col=lat_col, lon_col=lon_col)
+    clean[lat_col] = geo_status[lat_col]
+    clean[lon_col] = geo_status[lon_col]
+    clean[status_col] = geo_status["coord_status"]
+
+    clean = clean[clean[status_col].isin(valid_statuses)].copy()
+    _log_row_change(
+        "Cleaned outlet coordinates",
+        before_rows,
+        len(clean),
+        f"(valid_statuses={valid_statuses})",
+    )
+    return clean
+
+
+def outlet_coordinates_to_geodataframe(
+    df: pd.DataFrame,
+    *,
+    lat_col: str = "Latitude",
+    lon_col: str = "Longitude",
+    crs: str = "EPSG:4326",
+) -> gpd.GeoDataFrame:
+    """Convert cleaned outlet coordinates to a GeoDataFrame."""
+    if lat_col not in df.columns or lon_col not in df.columns:
+        missing = [col for col in (lat_col, lon_col) if col not in df.columns]
+        raise ValueError(f"Cannot create GeoDataFrame; missing column(s): {', '.join(missing)}")
+
+    geometry = [Point(xy) for xy in zip(df[lon_col], df[lat_col])]
+    gdf = gpd.GeoDataFrame(df.copy(), geometry=geometry, crs=crs)
+    log.info("Converted outlet coordinates to GeoDataFrame with %d row(s)", len(gdf))
+    return gdf
+
+
+def load_administrative_boundaries_from_pbf(
+    pbf_path: str | Path,
+    *,
+    layer: str = "multipolygons",
+    boundary_col: str = "boundary",
+    boundary_value: str = "administrative",
+    keep_columns: tuple[str, ...] = ("name", "admin_level", "geometry"),
+) -> gpd.GeoDataFrame:
+    """Load administrative boundaries from an OSM PBF file."""
+    pbf_path = Path(pbf_path)
+    if not pbf_path.exists():
+        raise FileNotFoundError(f"PBF file not found: {pbf_path}")
+
+    polygons = gpd.read_file(pbf_path, layer=layer)
+    boundaries = polygons[polygons[boundary_col] == boundary_value].copy()
+
+    available = [col for col in keep_columns if col in boundaries.columns]
+    if "geometry" not in available:
+        available.append("geometry")
+    boundaries = boundaries[available].copy()
+
+    log.info("Loaded %d administrative boundary polygon(s) from %s", len(boundaries), pbf_path)
+    return boundaries
+
+
+def spatially_verify_outlet_points(
+    points_gdf: gpd.GeoDataFrame,
+    boundaries_gdf: gpd.GeoDataFrame,
+    *,
+    how: str = "inner",
+    predicate: str = "within",
+) -> gpd.GeoDataFrame:
+    """Spatial join to keep only points inside administrative boundaries."""
+    boundaries = boundaries_gdf
+    if points_gdf.crs != boundaries.crs:
+        boundaries = boundaries.to_crs(points_gdf.crs)
+        log.info("Aligned boundary CRS from %s to %s", boundaries_gdf.crs, points_gdf.crs)
+
+    verified = gpd.sjoin(points_gdf, boundaries, how=how, predicate=predicate)
+    log.info(
+        "Spatially verified outlet points: kept %d/%d row(s)",
+        len(verified),
+        len(points_gdf),
+    )
+    return verified
+
+
+def clean_and_verify_outlet_coordinates(
+    df: pd.DataFrame,
+    pbf_path: str | Path,
+    *,
+    lat_col: str = "Latitude",
+    lon_col: str = "Longitude",
+    drop_geometry: bool = True,
+) -> pd.DataFrame:
+    """End-to-end outlet geo cleaning from notebook: clean coords + PBF boundary verification."""
+    clean = clean_outlet_coordinates_basic(df, lat_col=lat_col, lon_col=lon_col)
+    points = outlet_coordinates_to_geodataframe(clean, lat_col=lat_col, lon_col=lon_col)
+    boundaries = load_administrative_boundaries_from_pbf(pbf_path)
+    verified = spatially_verify_outlet_points(points, boundaries)
+
+    if drop_geometry and "geometry" in verified.columns:
+        verified = pd.DataFrame(verified.drop(columns=["geometry"]))
+    else:
+        verified = pd.DataFrame(verified)
+
+    return verified
+
+
+def download_file(url: str, dest: Path, *, chunk_size: int = 8192, overwrite: bool = False) -> Path:
+    """Download a file from `url` to `dest` using streaming (stdlib only)."""
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    if dest.exists() and not overwrite:
+        log.info("File already exists at %s, skipping download", dest)
+        return dest
+
+    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+
+    try:
+        log.info("Starting download: %s -> %s", url, dest)
+        with urllib.request.urlopen(url) as resp, open(tmp_path, "wb") as out_file:
+            downloaded = 0
+            while True:
+                chunk = resp.read(chunk_size)
+                if not chunk:
+                    break
+                out_file.write(chunk)
+                downloaded += len(chunk)
+        tmp_path.replace(dest)
+        log.info("Downloaded %s -> %s (%d bytes)", url, dest, downloaded)
+        return dest
+    except Exception:
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except Exception:
+            pass
+        log.exception("Failed to download %s", url)
+        raise
+
+
+def ensure_pbf_available(url: str, dest: Path, *, overwrite: bool = False) -> Path:
+    """Ensure the PBF file exists at `dest`, downloading it from `url` if needed."""
+    dest = Path(dest)
+    if dest.exists() and not overwrite:
+        log.info("PBF already available at %s", dest)
+        return dest
+    if not url:
+        raise ValueError("No URL provided to download PBF file")
+    return download_file(url, dest, overwrite=overwrite)
+
+
+def ensure_pbf_from_config(cfg: Optional[object] = None, *, overwrite: bool = False) -> Path:
+    """Read URL/path from config and ensure PBF is present."""
+    if cfg is None:
+        from src.configs.config import config as cfg
+
+    url = getattr(cfg, "OSM_PBF_URL", "")
+    dest = getattr(cfg, "pbf_path", None)
+    if callable(dest):
+        dest = dest()
+    if dest is None:
+        dest = Path(getattr(cfg, "RAW_PATH")) / getattr(cfg, "OSM_PBF_NAME")
+    return ensure_pbf_available(url, Path(dest), overwrite=overwrite)
+
 

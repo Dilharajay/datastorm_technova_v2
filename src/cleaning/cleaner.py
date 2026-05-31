@@ -8,6 +8,9 @@ import pandas as pd
 from src.configs.config import config
 from src.utils.cleaning_utils import (
     add_year_month_from_date,
+    clean_and_verify_outlet_coordinates,
+    clean_outlet_coordinates_basic,
+    ensure_pbf_from_config,
     filter_numeric_upper_bound,
     flag_flat_volume_outlets,
     flag_zero_volume_rows,
@@ -38,6 +41,17 @@ class SilverCleaner:
     def run(self) -> dict[str, int]:
         log.info("[%s] Starting cleaning", self.LAYER.upper())
         results: dict[str, int] = {}
+        pbf_path = None
+
+        # ensure optional OSM PBF is present (download if configured)
+        try:
+            pbf_path = ensure_pbf_from_config()
+            log.info("OSM PBF ensured at %s", pbf_path)
+        except ValueError:
+            # No URL configured; this is optional so continue
+            log.debug("No OSM PBF URL configured; skipping download")
+        except Exception as exc:  # pragma: no cover - best effort download
+            log.warning("Failed to ensure OSM PBF file: %s", exc)
 
         tx = read_parquet(config.BRONZE_PATH, "transactions_history_final")
         log.info("[%s] Loaded '%s' with %d row(s)", self.LAYER.upper(), "transactions_history_final", len(tx))
@@ -55,6 +69,9 @@ class SilverCleaner:
 
         hol = read_parquet(config.BRONZE_PATH, "holiday_list")
         log.info("[%s] Loaded '%s' with %d row(s)", self.LAYER.upper(), "holiday_list", len(hol))
+
+        geo = read_parquet(config.BRONZE_PATH, "outlet_coordinates")
+        log.info("[%s] Loaded '%s' with %d row(s)", self.LAYER.upper(), "outlet_coordinates", len(geo))
 
         tx_cleaned = self.clean_transactions(tx)
         log.info("[%s] Cleaned '%s' -> %d row(s)", self.LAYER.upper(), "transactions_history_final", len(tx_cleaned))
@@ -86,6 +103,10 @@ class SilverCleaner:
         hol_cleaned = self.clean_holiday_list(hol)
         log.info("[%s] Cleaned '%s' -> %d row(s)", self.LAYER.upper(), "holiday_list", len(hol_cleaned))
         results["holiday_list"] = write_parquet(hol_cleaned, config.SILVER_PATH, "holiday_list", self.LAYER)
+
+        geo_cleaned = self.clean_outlet_coordinates(geo, pbf_path=pbf_path)
+        log.info("[%s] Cleaned '%s' -> %d row(s)", self.LAYER.upper(), "outlet_coordinates", len(geo_cleaned))
+        results["outlet_coordinates"] = write_parquet(geo_cleaned, config.SILVER_PATH, "outlet_coordinates", self.LAYER)
 
         log.info("[%s] Cleaning completed: %d table(s) written", self.LAYER.upper(), len(results))
         return results
@@ -197,6 +218,25 @@ class SilverCleaner:
         clean = parse_date_column(clean, date_col)
         clean = add_year_month_from_date(clean, date_col, year_col, month_col)
         return clean
+
+    @staticmethod
+    def clean_outlet_coordinates(
+        df: pd.DataFrame,
+        *,
+        pbf_path: Optional[str] = None,
+        lat_col: str = "Latitude",
+        lon_col: str = "Longitude",
+    ) -> pd.DataFrame:
+        """Apply notebook geo cleaning; verify against PBF boundaries when available."""
+        if pbf_path:
+            try:
+                return clean_and_verify_outlet_coordinates(df, pbf_path, lat_col=lat_col, lon_col=lon_col)
+            except FileNotFoundError:
+                log.warning("PBF file not found at %s. Falling back to coordinate-only cleaning.", pbf_path)
+            except Exception as exc:  # pragma: no cover - runtime dependency/path differences
+                log.warning("Outlet boundary verification skipped: %s", exc)
+
+        return clean_outlet_coordinates_basic(df, lat_col=lat_col, lon_col=lon_col)
 
     @staticmethod
     def clean_seasonality_index(df: pd.DataFrame, column_name: str) -> pd.DataFrame:
