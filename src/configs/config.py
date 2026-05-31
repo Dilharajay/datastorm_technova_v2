@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 BASE_PATH = Path(__file__).parent.parent.parent
 
@@ -24,7 +25,7 @@ class Config:
     """Alt name sri-lanka-latest.osm.pbf"""
 
     # write options
-    parquet_compression: str = "snappy"
+    parquet_compression: Literal["snappy", "gzip", "brotli", "lz4", "zstd"] = "zstd"
 
     # source file dicovery
     raw_file_glob: str = "*.zip" # zip containing csv files
