@@ -19,6 +19,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("pipeline.runner")
 
+
 def main() -> None:
     start = datetime.now(timezone.utc)
     log.info("Pipeline starting  —  %s", start.isoformat())

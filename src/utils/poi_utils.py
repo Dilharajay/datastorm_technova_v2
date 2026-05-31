@@ -10,7 +10,9 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 
-warnings.filterwarnings("ignore", message="Non closed ring detected", category=RuntimeWarning)
+warnings.filterwarnings(
+    "ignore", message="Non closed ring detected", category=RuntimeWarning
+)
 
 log = logging.getLogger("pipeline.poi")
 
@@ -82,7 +84,9 @@ def extract_all_poi_categories(
         if result[cat]:
             combined = pd.concat(result[cat], ignore_index=True)
             if "osm_id" in combined.columns:
-                combined = combined.drop_duplicates(subset=["osm_id"]).reset_index(drop=True)
+                combined = combined.drop_duplicates(subset=["osm_id"]).reset_index(
+                    drop=True
+                )
             output[cat] = combined
         else:
             output[cat] = gpd.GeoDataFrame({"osm_id": []}, geometry=[], crs="EPSG:4326")

@@ -28,11 +28,20 @@ def _log_missing_column(column: str, action: str) -> None:
     log.warning("Skipped %s because column '%s' was not found", action, column)
 
 
-def _log_row_change(action: str, before_rows: int, after_rows: int, details: str = "") -> None:
+def _log_row_change(
+    action: str, before_rows: int, after_rows: int, details: str = ""
+) -> None:
     """Log a compact summary for row-filtering operations."""
     removed = before_rows - after_rows
     suffix = f" {details}" if details else ""
-    log.info("%s: kept %d/%d rows (%d removed)%s", action, after_rows, before_rows, removed, suffix)
+    log.info(
+        "%s: kept %d/%d rows (%d removed)%s",
+        action,
+        after_rows,
+        before_rows,
+        removed,
+        suffix,
+    )
 
 
 # Low level helpers
@@ -72,7 +81,9 @@ def normalize_text_column(
     return out
 
 
-def make_abs_columns(df: pd.DataFrame, columns: list[str], copy: bool = True) -> pd.DataFrame:
+def make_abs_columns(
+    df: pd.DataFrame, columns: list[str], copy: bool = True
+) -> pd.DataFrame:
     """
     Convert selected numeric columns to absolute values.
     """
@@ -89,9 +100,14 @@ def make_abs_columns(df: pd.DataFrame, columns: list[str], copy: bool = True) ->
             missing.append(col)
 
     if converted:
-        log.info("Converted numeric columns to absolute values: %s", ", ".join(converted))
+        log.info(
+            "Converted numeric columns to absolute values: %s", ", ".join(converted)
+        )
     if missing:
-        log.warning("Skipped absolute-value conversion for missing columns: %s", ", ".join(missing))
+        log.warning(
+            "Skipped absolute-value conversion for missing columns: %s",
+            ", ".join(missing),
+        )
     return out
 
 
@@ -165,7 +181,9 @@ def parse_date_column(
     """Parse a date column in-place and return the DataFrame."""
     out = df.copy() if copy else df
     if column in out.columns:
-        out[column] = pd.Series(pd.to_datetime(out[column].to_numpy(), errors=errors), index=out.index)
+        out[column] = pd.Series(
+            pd.to_datetime(out[column].to_numpy(), errors=errors), index=out.index
+        )
         log.info("Parsed date column '%s' (errors=%s)", column, errors)
     else:
         _log_missing_column(column, "date parsing")
@@ -186,7 +204,9 @@ def add_year_month_from_date(
         _log_missing_column(date_column, "year/month derivation")
         return out
 
-    date_values = pd.Series(pd.to_datetime(out[date_column].to_numpy(), errors="coerce"), index=out.index)
+    date_values = pd.Series(
+        pd.to_datetime(out[date_column].to_numpy(), errors="coerce"), index=out.index
+    )
     out[year_column] = pd.Series(
         [value.year if not pd.isna(value) else pd.NA for value in date_values],
         index=out.index,
@@ -197,7 +217,12 @@ def add_year_month_from_date(
         index=out.index,
         dtype="Int64",
     )
-    log.info("Derived calendar columns '%s' and '%s' from '%s'", year_column, month_column, date_column)
+    log.info(
+        "Derived calendar columns '%s' and '%s' from '%s'",
+        year_column,
+        month_column,
+        date_column,
+    )
     return out
 
 
@@ -223,12 +248,21 @@ def remove_outliers_iqr(
     if dropna:
         non_numeric_rows = int(series.isna().sum())
         data = data.loc[series.notna()].copy()
-        series = pd.Series(pd.to_numeric(data[column], errors="coerce"), index=data.index)
+        series = pd.Series(
+            pd.to_numeric(data[column], errors="coerce"), index=data.index
+        )
         if non_numeric_rows:
-            log.info("Excluded %d non-numeric row(s) from '%s' before IQR calculation", non_numeric_rows, column)
+            log.info(
+                "Excluded %d non-numeric row(s) from '%s' before IQR calculation",
+                non_numeric_rows,
+                column,
+            )
 
     if series.empty:
-        log.warning("Skipped IQR outlier removal for '%s' because no numeric data remained", column)
+        log.warning(
+            "Skipped IQR outlier removal for '%s' because no numeric data remained",
+            column,
+        )
         return data
 
     q1 = series.quantile(0.25)
@@ -236,7 +270,9 @@ def remove_outliers_iqr(
     iqr = q3 - q1
 
     if pd.isna(iqr) or iqr == 0:
-        log.info("Skipped IQR outlier removal for '%s' because the IQR is 0 or NaN", column)
+        log.info(
+            "Skipped IQR outlier removal for '%s' because the IQR is 0 or NaN", column
+        )
         return data
 
     lower_bound = q1 - whisker * iqr
@@ -256,9 +292,13 @@ def remove_outliers_iqr(
     return filtered
 
 
-def flag_zero_volume_rows(df: pd.DataFrame, volume_col: str = "Volume_Liters") -> pd.Series:
+def flag_zero_volume_rows(
+    df: pd.DataFrame, volume_col: str = "Volume_Liters"
+) -> pd.Series:
     """Flag rows where Volume_Liters == 0."""
-    return pd.Series(pd.to_numeric(df[volume_col], errors="coerce"), index=df.index) == 0
+    return (
+        pd.Series(pd.to_numeric(df[volume_col], errors="coerce"), index=df.index) == 0
+    )
 
 
 def flag_flat_volume_outlets(
@@ -273,9 +313,13 @@ def flag_flat_volume_outlets(
     Returns a boolean Series aligned to df's index.
     """
     work = df[[outlet_col, volume_col]].copy()
-    work[volume_col] = pd.Series(pd.to_numeric(work[volume_col], errors="coerce"), index=work.index)
+    work[volume_col] = pd.Series(
+        pd.to_numeric(work[volume_col], errors="coerce"), index=work.index
+    )
 
-    outlet_stats = work.groupby(outlet_col)[volume_col].agg(["std", "mean", "count"]).reset_index()
+    outlet_stats = (
+        work.groupby(outlet_col)[volume_col].agg(["std", "mean", "count"]).reset_index()
+    )
     outlet_stats["cv"] = outlet_stats["std"] / outlet_stats["mean"].replace(0, np.nan)
     outlet_stats["cv"] = outlet_stats["cv"].fillna(0)
 
@@ -323,7 +367,9 @@ def fix_coords(
     lon = row[lon_col]
 
     if (lon_min <= lat <= lon_max) and (lat_min <= lon <= lat_max):
-        return pd.Series({lat_col: lon, lon_col: lat, "coord_status": "Swapped and Fixed"})
+        return pd.Series(
+            {lat_col: lon, lon_col: lat, "coord_status": "Swapped and Fixed"}
+        )
 
     if (lat_min <= lat <= lat_max) and (lon_min <= lon <= lon_max):
         return pd.Series({lat_col: lat, lon_col: lon, "coord_status": "Valid"})
@@ -345,7 +391,10 @@ def clean_outlet_coordinates_basic(
 
     if lat_col not in clean.columns or lon_col not in clean.columns:
         missing = [col for col in (lat_col, lon_col) if col not in clean.columns]
-        log.warning("Skipped outlet coordinate cleaning; missing column(s): %s", ", ".join(missing))
+        log.warning(
+            "Skipped outlet coordinate cleaning; missing column(s): %s",
+            ", ".join(missing),
+        )
         return clean
 
     clean = clean.dropna(subset=[lat_col, lon_col]).copy()
@@ -378,7 +427,9 @@ def outlet_coordinates_to_geodataframe(
     """Convert cleaned outlet coordinates to a GeoDataFrame."""
     if lat_col not in df.columns or lon_col not in df.columns:
         missing = [col for col in (lat_col, lon_col) if col not in df.columns]
-        raise ValueError(f"Cannot create GeoDataFrame; missing column(s): {', '.join(missing)}")
+        raise ValueError(
+            f"Cannot create GeoDataFrame; missing column(s): {', '.join(missing)}"
+        )
 
     geometry = [Point(xy) for xy in zip(df[lon_col], df[lat_col])]
     gdf = gpd.GeoDataFrame(df.copy(), geometry=geometry, crs=crs)
@@ -407,7 +458,11 @@ def load_administrative_boundaries_from_pbf(
         available.append("geometry")
     boundaries = boundaries[available].copy()
 
-    log.info("Loaded %d administrative boundary polygon(s) from %s", len(boundaries), pbf_path)
+    log.info(
+        "Loaded %d administrative boundary polygon(s) from %s",
+        len(boundaries),
+        pbf_path,
+    )
     return boundaries
 
 
@@ -422,7 +477,9 @@ def spatially_verify_outlet_points(
     boundaries = boundaries_gdf
     if points_gdf.crs != boundaries.crs:
         boundaries = boundaries.to_crs(points_gdf.crs)
-        log.info("Aligned boundary CRS from %s to %s", boundaries_gdf.crs, points_gdf.crs)
+        log.info(
+            "Aligned boundary CRS from %s to %s", boundaries_gdf.crs, points_gdf.crs
+        )
 
     verified = gpd.sjoin(points_gdf, boundaries, how=how, predicate=predicate)
     log.info(
@@ -455,7 +512,9 @@ def clean_and_verify_outlet_coordinates(
     return verified
 
 
-def download_file(url: str, dest: Path, *, chunk_size: int = 8192, overwrite: bool = False) -> Path:
+def download_file(
+    url: str, dest: Path, *, chunk_size: int = 8192, overwrite: bool = False
+) -> Path:
     """Download a file from `url` to `dest` using streaming (stdlib only)."""
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -501,7 +560,9 @@ def ensure_pbf_available(url: str, dest: Path, *, overwrite: bool = False) -> Pa
     return download_file(url, dest, overwrite=overwrite)
 
 
-def ensure_pbf_from_config(cfg: Optional[object] = None, *, overwrite: bool = False) -> Path:
+def ensure_pbf_from_config(
+    cfg: Optional[object] = None, *, overwrite: bool = False
+) -> Path:
     """Read URL/path from config and ensure PBF is present."""
     if cfg is None:
         from src.configs.config import config as cfg
@@ -513,5 +574,3 @@ def ensure_pbf_from_config(cfg: Optional[object] = None, *, overwrite: bool = Fa
     if dest is None:
         dest = Path(getattr(cfg, "RAW_PATH")) / getattr(cfg, "OSM_PBF_NAME")
     return ensure_pbf_available(url, Path(dest), overwrite=overwrite)
-
-

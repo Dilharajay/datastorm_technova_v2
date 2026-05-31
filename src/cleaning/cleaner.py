@@ -21,7 +21,11 @@ from src.utils.cleaning_utils import (
     parse_date_column,
 )
 from src.utils.io import drop_audit_columns, read_parquet, write_parquet, write_rejects
-from src.utils.poi_utils import POI_CATEGORIES, compute_outlet_poi_scores, extract_all_poi_categories
+from src.utils.poi_utils import (
+    POI_CATEGORIES,
+    compute_outlet_poi_scores,
+    extract_all_poi_categories,
+)
 
 log = logging.getLogger("pipeline.cleaner")
 
@@ -57,79 +61,164 @@ class SilverCleaner:
 
         # ── Transactions ──────────────────────────────────────────────
         tx = read_parquet(config.BRONZE_PATH, "transactions_history_final")
-        log.info("[%s] Loaded '%s' with %d row(s)", self.LAYER.upper(), "transactions_history_final", len(tx))
+        log.info(
+            "[%s] Loaded '%s' with %d row(s)",
+            self.LAYER.upper(),
+            "transactions_history_final",
+            len(tx),
+        )
 
         tx_valid_raw, tx_reject_df = self._reject_transactions(tx)
 
         tx_cleaned = self.clean_transactions(tx_valid_raw)
-        tx_cleaned = tx_cleaned.drop(columns=["flag_zero_volume", "flag_flat_outlet"], errors="ignore")
+        tx_cleaned = tx_cleaned.drop(
+            columns=["flag_zero_volume", "flag_flat_outlet"], errors="ignore"
+        )
 
-        log.info("[%s] Cleaned '%s' -> %d valid, %d rejected",
-                 self.LAYER.upper(), "transactions_history_final", len(tx_cleaned), len(tx_reject_df))
+        log.info(
+            "[%s] Cleaned '%s' -> %d valid, %d rejected",
+            self.LAYER.upper(),
+            "transactions_history_final",
+            len(tx_cleaned),
+            len(tx_reject_df),
+        )
         results["transactions_history_final"] = write_parquet(
-            tx_cleaned, config.SILVER_PATH, "transactions_history_final", self.LAYER,
+            tx_cleaned,
+            config.SILVER_PATH,
+            "transactions_history_final",
+            self.LAYER,
         )
         if not tx_reject_df.empty:
-            write_rejects(tx_reject_df, config.REJECTS_PATH, "transactions_history_final", self.LAYER)
+            write_rejects(
+                tx_reject_df,
+                config.REJECTS_PATH,
+                "transactions_history_final",
+                self.LAYER,
+            )
 
         # ── Outlet Master ─────────────────────────────────────────────
         out = read_parquet(config.BRONZE_PATH, "outlet_master")
-        log.info("[%s] Loaded '%s' with %d row(s)", self.LAYER.upper(), "outlet_master", len(out))
+        log.info(
+            "[%s] Loaded '%s' with %d row(s)",
+            self.LAYER.upper(),
+            "outlet_master",
+            len(out),
+        )
 
         out_cleaned = self.clean_outlet_master(out)
-        log.info("[%s] Cleaned '%s' -> %d row(s)", self.LAYER.upper(), "outlet_master", len(out_cleaned))
-        results["outlet_master"] = write_parquet(out_cleaned, config.SILVER_PATH, "outlet_master", self.LAYER)
+        log.info(
+            "[%s] Cleaned '%s' -> %d row(s)",
+            self.LAYER.upper(),
+            "outlet_master",
+            len(out_cleaned),
+        )
+        results["outlet_master"] = write_parquet(
+            out_cleaned, config.SILVER_PATH, "outlet_master", self.LAYER
+        )
 
         # ── Distributor Seasonality ───────────────────────────────────
         dist = read_parquet(config.BRONZE_PATH, "distributor_seasonality_details")
-        log.info("[%s] Loaded '%s' with %d row(s)", self.LAYER.upper(), "distributor_seasonality_details", len(dist))
+        log.info(
+            "[%s] Loaded '%s' with %d row(s)",
+            self.LAYER.upper(),
+            "distributor_seasonality_details",
+            len(dist),
+        )
 
         dist_cleaned = self.clean_distributor_seasonality(dist)
-        log.info("[%s] Cleaned '%s' -> %d row(s)", self.LAYER.upper(), "distributor_seasonality_details", len(dist_cleaned))
+        log.info(
+            "[%s] Cleaned '%s' -> %d row(s)",
+            self.LAYER.upper(),
+            "distributor_seasonality_details",
+            len(dist_cleaned),
+        )
         results["distributor_seasonality_details"] = write_parquet(
-            dist_cleaned, config.SILVER_PATH, "distributor_seasonality_details", self.LAYER,
+            dist_cleaned,
+            config.SILVER_PATH,
+            "distributor_seasonality_details",
+            self.LAYER,
         )
 
         # ── Holiday List ──────────────────────────────────────────────
         hol = read_parquet(config.BRONZE_PATH, "holiday_list")
-        log.info("[%s] Loaded '%s' with %d row(s)", self.LAYER.upper(), "holiday_list", len(hol))
+        log.info(
+            "[%s] Loaded '%s' with %d row(s)",
+            self.LAYER.upper(),
+            "holiday_list",
+            len(hol),
+        )
 
         hol_cleaned = self.clean_holiday_list(hol)
 
         # Reject rows with unparseable dates
         nat_mask = hol_cleaned["Date"].isna()
-        hol_reject = hol_cleaned.loc[nat_mask].copy() if nat_mask.any() else pd.DataFrame()
+        hol_reject = (
+            hol_cleaned.loc[nat_mask].copy() if nat_mask.any() else pd.DataFrame()
+        )
 
         # Deduplicate remaining
-        hol_valid = hol_cleaned.loc[~nat_mask].drop_duplicates(
-            subset=["Date", "Holiday_Name", "Holiday_Type"]
-        ).copy()
+        hol_valid = (
+            hol_cleaned.loc[~nat_mask]
+            .drop_duplicates(subset=["Date", "Holiday_Name", "Holiday_Type"])
+            .copy()
+        )
 
-        log.info("[%s] Cleaned '%s' -> %d valid, %d rejected (bad dates + dupes)",
-                 self.LAYER.upper(), "holiday_list", len(hol_valid),
-                 len(hol_reject) + len(hol_cleaned) - len(hol_valid) - len(hol_reject))
-        results["holiday_list"] = write_parquet(hol_valid, config.SILVER_PATH, "holiday_list", self.LAYER)
+        log.info(
+            "[%s] Cleaned '%s' -> %d valid, %d rejected (bad dates + dupes)",
+            self.LAYER.upper(),
+            "holiday_list",
+            len(hol_valid),
+            len(hol_reject) + len(hol_cleaned) - len(hol_valid) - len(hol_reject),
+        )
+        results["holiday_list"] = write_parquet(
+            hol_valid, config.SILVER_PATH, "holiday_list", self.LAYER
+        )
         if not hol_reject.empty:
-            write_rejects(hol_reject, config.REJECTS_PATH, "holiday_list", self.LAYER, reject_reason="unparseable_date")
+            write_rejects(
+                hol_reject,
+                config.REJECTS_PATH,
+                "holiday_list",
+                self.LAYER,
+                reject_reason="unparseable_date",
+            )
 
         # ── Outlet Coordinates ────────────────────────────────────────
         geo = read_parquet(config.BRONZE_PATH, "outlet_coordinates")
-        log.info("[%s] Loaded '%s' with %d row(s)", self.LAYER.upper(), "outlet_coordinates", len(geo))
+        log.info(
+            "[%s] Loaded '%s' with %d row(s)",
+            self.LAYER.upper(),
+            "outlet_coordinates",
+            len(geo),
+        )
 
         geo_valid, geo_reject = self.clean_outlet_coordinates(geo, pbf_path=pbf_path)
-        log.info("[%s] Cleaned '%s' -> %d valid, %d rejected",
-                 self.LAYER.upper(), "outlet_coordinates", len(geo_valid), len(geo_reject))
-        results["outlet_coordinates"] = write_parquet(geo_valid, config.SILVER_PATH, "outlet_coordinates", self.LAYER)
+        log.info(
+            "[%s] Cleaned '%s' -> %d valid, %d rejected",
+            self.LAYER.upper(),
+            "outlet_coordinates",
+            len(geo_valid),
+            len(geo_reject),
+        )
+        results["outlet_coordinates"] = write_parquet(
+            geo_valid, config.SILVER_PATH, "outlet_coordinates", self.LAYER
+        )
         if not geo_reject.empty:
-            write_rejects(geo_reject, config.REJECTS_PATH, "outlet_coordinates", self.LAYER)
+            write_rejects(
+                geo_reject, config.REJECTS_PATH, "outlet_coordinates", self.LAYER
+            )
 
         # ── POI Scores (uses deduplicated geo_valid) ──────────────────
         poi_results = self.create_outlet_poi_scores(geo_valid, pbf_path=pbf_path)
         results.update(poi_results)
 
-        log.info("[%s] Cleaning completed: %d table(s) written, %d rejected",
-                 self.LAYER.upper(), len(results),
-                 len(tx_reject_df) + (0 if hol_reject.empty else len(hol_reject)) + len(geo_reject))
+        log.info(
+            "[%s] Cleaning completed: %d table(s) written, %d rejected",
+            self.LAYER.upper(),
+            len(results),
+            len(tx_reject_df)
+            + (0 if hol_reject.empty else len(hol_reject))
+            + len(geo_reject),
+        )
         return results
 
     @staticmethod
@@ -188,10 +277,14 @@ class SilverCleaner:
         clean = df.copy()
 
         clean = make_abs_columns(clean, [volume_col, bill_col], copy=False)
-        clean = filter_numeric_upper_bound(clean, volume_col, max_volume_liters, copy=False, inclusive=False)
+        clean = filter_numeric_upper_bound(
+            clean, volume_col, max_volume_liters, copy=False, inclusive=False
+        )
 
         if add_flags:
-            clean["flag_zero_volume"] = flag_zero_volume_rows(clean, volume_col=volume_col)
+            clean["flag_zero_volume"] = flag_zero_volume_rows(
+                clean, volume_col=volume_col
+            )
             clean["flag_flat_outlet"] = flag_flat_volume_outlets(
                 clean,
                 outlet_col=outlet_col,
@@ -227,7 +320,11 @@ class SilverCleaner:
             clean["Outlet_Size_Imputed"] = clean["Outlet_Size"].isna()
             if size_fill_strategy.lower() == "mode":
                 non_null = clean["Outlet_Size"].dropna()
-                fill_value = non_null.mode().iloc[0] if not non_null.empty else size_fill_value.lower()
+                fill_value = (
+                    non_null.mode().iloc[0]
+                    if not non_null.empty
+                    else size_fill_value.lower()
+                )
             else:
                 fill_value = size_fill_value.lower()
             clean["Outlet_Size"] = clean["Outlet_Size"].fillna(fill_value)
@@ -235,7 +332,9 @@ class SilverCleaner:
 
         if "Outlet_Type" in clean.columns:
             normalized = clean["Outlet_Type"].astype("string").str.strip().str.lower()
-            clean["Outlet_Type"] = normalized.map(mapping).fillna(normalized).astype("object")
+            clean["Outlet_Type"] = (
+                normalized.map(mapping).fillna(normalized).astype("object")
+            )
 
         return clean
 
@@ -269,8 +368,12 @@ class SilverCleaner:
     ) -> pd.DataFrame:
         """Normalize holiday names/types and derive Year/Month from Date."""
         clean = df.copy()
-        clean = normalize_text_column(clean, name_col, lower=True, collapse_whitespace=True)
-        clean = normalize_text_column(clean, type_col, lower=True, collapse_whitespace=True)
+        clean = normalize_text_column(
+            clean, name_col, lower=True, collapse_whitespace=True
+        )
+        clean = normalize_text_column(
+            clean, type_col, lower=True, collapse_whitespace=True
+        )
         clean = parse_date_column(clean, date_col)
         clean = add_year_month_from_date(clean, date_col, year_col, month_col)
         return clean
@@ -306,16 +409,25 @@ class SilverCleaner:
         if pbf_path:
             try:
                 cleaned = clean_and_verify_outlet_coordinates(
-                    to_clean, pbf_path, lat_col=lat_col, lon_col=lon_col,
+                    to_clean,
+                    pbf_path,
+                    lat_col=lat_col,
+                    lon_col=lon_col,
                 )
             except FileNotFoundError:
                 log.warning("PBF not found; falling back to basic coordinate cleaning")
-                cleaned = clean_outlet_coordinates_basic(to_clean, lat_col=lat_col, lon_col=lon_col)
+                cleaned = clean_outlet_coordinates_basic(
+                    to_clean, lat_col=lat_col, lon_col=lon_col
+                )
             except Exception as exc:
                 log.warning("Outlet boundary verification skipped: %s", exc)
-                cleaned = clean_outlet_coordinates_basic(to_clean, lat_col=lat_col, lon_col=lon_col)
+                cleaned = clean_outlet_coordinates_basic(
+                    to_clean, lat_col=lat_col, lon_col=lon_col
+                )
         else:
-            cleaned = clean_outlet_coordinates_basic(to_clean, lat_col=lat_col, lon_col=lon_col)
+            cleaned = clean_outlet_coordinates_basic(
+                to_clean, lat_col=lat_col, lon_col=lon_col
+            )
 
         # Step 3 — rows that disappeared are out-of-bounds
         dropped_idx = to_clean.index.difference(cleaned.index)
@@ -326,10 +438,16 @@ class SilverCleaner:
 
         # Step 4 — deduplicate by Outlet_ID, drop spatial-join artifacts
         artifact_cols = ["index_right", "name", "admin_level"]
-        cleaned = cleaned.drop(columns=[c for c in artifact_cols if c in cleaned.columns], errors="ignore")
+        cleaned = cleaned.drop(
+            columns=[c for c in artifact_cols if c in cleaned.columns], errors="ignore"
+        )
         valid = cleaned.drop_duplicates(subset=["Outlet_ID"]).copy()
 
-        reject = pd.concat(reject_frames, ignore_index=True) if reject_frames else pd.DataFrame()
+        reject = (
+            pd.concat(reject_frames, ignore_index=True)
+            if reject_frames
+            else pd.DataFrame()
+        )
         return valid, reject
 
     @staticmethod
@@ -379,7 +497,9 @@ class SilverCleaner:
         scores_df["Outlet_ID"] = uniq["Outlet_ID"].values
         scores_df = scores_df[["Outlet_ID"] + list(scores_per_cat.keys())]
 
-        row_count = write_parquet(scores_df, config.SILVER_PATH, "outlet_poi_scores", "silver")
+        row_count = write_parquet(
+            scores_df, config.SILVER_PATH, "outlet_poi_scores", "silver"
+        )
         log.info("[POI] Computed scores for %d unique outlets", len(uniq))
         log.info("[POI] Wrote %d outlet POI score row(s)", row_count)
         return {"outlet_poi_scores": row_count}
@@ -392,13 +512,28 @@ class GoldCleaner:
         log.info("[%s] Starting gold layer build", self.LAYER.upper())
 
         tx = read_parquet(config.SILVER_PATH, "transactions_history_final")
-        log.info("[%s] Loaded '%s' with %d row(s)", self.LAYER.upper(), "transactions_history_final", len(tx))
+        log.info(
+            "[%s] Loaded '%s' with %d row(s)",
+            self.LAYER.upper(),
+            "transactions_history_final",
+            len(tx),
+        )
 
         out = read_parquet(config.SILVER_PATH, "outlet_master")
-        log.info("[%s] Loaded '%s' with %d row(s)", self.LAYER.upper(), "outlet_master", len(out))
+        log.info(
+            "[%s] Loaded '%s' with %d row(s)",
+            self.LAYER.upper(),
+            "outlet_master",
+            len(out),
+        )
 
         geo = read_parquet(config.SILVER_PATH, "outlet_coordinates")
-        log.info("[%s] Loaded '%s' with %d row(s)", self.LAYER.upper(), "outlet_coordinates", len(geo))
+        log.info(
+            "[%s] Loaded '%s' with %d row(s)",
+            self.LAYER.upper(),
+            "outlet_coordinates",
+            len(geo),
+        )
 
         dist = read_parquet(config.SILVER_PATH, "distributor_seasonality_details")
         log.info(
@@ -409,21 +544,42 @@ class GoldCleaner:
         )
 
         hol = read_parquet(config.SILVER_PATH, "holiday_list")
-        log.info("[%s] Loaded '%s' with %d row(s)", self.LAYER.upper(), "holiday_list", len(hol))
+        log.info(
+            "[%s] Loaded '%s' with %d row(s)",
+            self.LAYER.upper(),
+            "holiday_list",
+            len(hol),
+        )
 
         poi = None
         try:
             poi = read_parquet(config.SILVER_PATH, "outlet_poi_scores")
-            log.info("[%s] Loaded '%s' with %d row(s)", self.LAYER.upper(), "outlet_poi_scores", len(poi))
+            log.info(
+                "[%s] Loaded '%s' with %d row(s)",
+                self.LAYER.upper(),
+                "outlet_poi_scores",
+                len(poi),
+            )
         except Exception:
-            log.info("[%s] 'outlet_poi_scores' not available; skipping POI enrichment", self.LAYER.upper())
+            log.info(
+                "[%s] 'outlet_poi_scores' not available; skipping POI enrichment",
+                self.LAYER.upper(),
+            )
 
         gold = self.build_fact_table(tx, out, geo, dist, hol, poi_scores=poi)
-        log.info("[%s] Built fact table with %d rows x %d cols", self.LAYER.upper(), *gold.shape)
+        log.info(
+            "[%s] Built fact table with %d rows x %d cols",
+            self.LAYER.upper(),
+            *gold.shape,
+        )
 
         results: dict[str, int] = {}
-        results["fact_table"] = write_parquet(gold, config.GOLD_PATH, "fact_table", self.LAYER)
-        log.info("[%s] Gold layer build completed (1 table written)", self.LAYER.upper())
+        results["fact_table"] = write_parquet(
+            gold, config.GOLD_PATH, "fact_table", self.LAYER
+        )
+        log.info(
+            "[%s] Gold layer build completed (1 table written)", self.LAYER.upper()
+        )
         return results
 
     @staticmethod
@@ -452,12 +608,9 @@ class GoldCleaner:
         fact = fact.merge(ds, on=["Distributor_ID", "Year", "Month"], how="left")
 
         hl = drop_audit_columns(holiday_list.copy())
-        hol_agg = (
-            hl.groupby(["Year", "Month"], as_index=False)
-            .agg(
-                holiday_count=("Holiday_Name", "count"),
-                holiday_names=("Holiday_Name", lambda x: ", ".join(x.dropna().unique())),
-            )
+        hol_agg = hl.groupby(["Year", "Month"], as_index=False).agg(
+            holiday_count=("Holiday_Name", "count"),
+            holiday_names=("Holiday_Name", lambda x: ", ".join(x.dropna().unique())),
         )
         fact = fact.merge(hol_agg, on=["Year", "Month"], how="left")
 

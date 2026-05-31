@@ -6,16 +6,18 @@ from typing import Literal
 
 BASE_PATH = Path(__file__).parent.parent.parent
 
+
 @dataclass
 class Config:
-
     # data layer paths
-    RAW_PATH: Path = BASE_PATH / "data" / "raw" 
+    RAW_PATH: Path = BASE_PATH / "data" / "raw"
     BRONZE_PATH: Path = BASE_PATH / "data" / "bronze"
     SILVER_PATH: Path = BASE_PATH / "data" / "silver"
     GOLD_PATH: Path = BASE_PATH / "data" / "gold"
     REJECTS_PATH: Path = BASE_PATH / "data" / "rejects"
-    EXTRACT_PATH: Path = BASE_PATH / "data" / "extracted" # temporary path for extracted files, auto cleaned
+    EXTRACT_PATH: Path = (
+        BASE_PATH / "data" / "extracted"
+    )  # temporary path for extracted files, auto cleaned
     FIGURES_DIR: Path = BASE_PATH / "figures"
     REPORTS_DIR: Path = BASE_PATH / "reports"
     # optional OSM PBF download configuration
@@ -28,7 +30,7 @@ class Config:
     parquet_compression: Literal["snappy", "gzip", "brotli", "lz4", "zstd"] = "zstd"
 
     # source file dicovery
-    raw_file_glob: str = "*.zip" # zip containing csv files
+    raw_file_glob: str = "*.zip"  # zip containing csv files
 
     # audit column names
     col_layer: str = "_layer"
@@ -37,11 +39,18 @@ class Config:
 
     def managed_dirs(self) -> tuple:
         # all directories that should be exist before running the pipeline
-        return (self.RAW_PATH, self.BRONZE_PATH, self.SILVER_PATH, self.GOLD_PATH, self.REJECTS_PATH)
+        return (
+            self.RAW_PATH,
+            self.BRONZE_PATH,
+            self.SILVER_PATH,
+            self.GOLD_PATH,
+            self.REJECTS_PATH,
+        )
 
     def pbf_path(self) -> Path:
         """Return the expected path for the configured OSM PBF file."""
         return self.RAW_PATH / self.OSM_PBF_NAME
+
 
 # create a global config instance
 config = Config()
