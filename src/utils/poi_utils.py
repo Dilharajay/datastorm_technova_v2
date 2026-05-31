@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import warnings
 from pathlib import Path
 
@@ -41,6 +42,14 @@ def _matches_category(row: pd.Series, tag_filters: dict[str, list[str]]) -> bool
         val = row.get(key)
         if val is not None and val in values:
             return True
+
+    ot = row.get("other_tags")
+    if isinstance(ot, str) and ot.strip():
+        for key, values in tag_filters.items():
+            for m in re.finditer(rf'"{re.escape(key)}"=>"([^"]*)"', ot):
+                if m.group(1) in values:
+                    return True
+
     return False
 
 
