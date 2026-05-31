@@ -19,7 +19,8 @@ class Config:
     # optional OSM PBF download configuration
     OSM_PBF_URL: str = "https://download.geofabrik.de/asia/sri-lanka-latest.osm.pbf"
     # filename to store the downloaded pbf under RAW_PATH
-    OSM_PBF_NAME: str = "sri_lanka-latest.osm.pbf"
+    OSM_PBF_NAME: str = "sri-lanka-latest.osm.pbf"
+    """Alt name sri-lanka-latest.osm.pbf"""
 
     # write options
     parquet_compression: str = "snappy"

@@ -1,8 +1,10 @@
 # Main cleaning script for silver layer
 
+from pathlib import Path
 import logging
 from typing import Mapping, Optional
 
+import geopandas as gpd
 import pandas as pd
 
 from src.configs.config import config
@@ -18,7 +20,8 @@ from src.utils.cleaning_utils import (
     normalize_text_column,
     parse_date_column,
 )
-from src.utils.io import read_parquet, write_parquet
+from src.utils.io import drop_audit_columns, read_parquet, write_parquet
+from src.utils.poi_utils import POI_CATEGORIES, compute_outlet_poi_scores, extract_all_poi_categories
 
 log = logging.getLogger("pipeline.cleaner")
 
@@ -107,6 +110,9 @@ class SilverCleaner:
         geo_cleaned = self.clean_outlet_coordinates(geo, pbf_path=pbf_path)
         log.info("[%s] Cleaned '%s' -> %d row(s)", self.LAYER.upper(), "outlet_coordinates", len(geo_cleaned))
         results["outlet_coordinates"] = write_parquet(geo_cleaned, config.SILVER_PATH, "outlet_coordinates", self.LAYER)
+
+        poi_results = self.create_outlet_poi_scores(geo_cleaned, pbf_path=pbf_path)
+        results.update(poi_results)
 
         log.info("[%s] Cleaning completed: %d table(s) written", self.LAYER.upper(), len(results))
         return results
@@ -223,7 +229,7 @@ class SilverCleaner:
     def clean_outlet_coordinates(
         df: pd.DataFrame,
         *,
-        pbf_path: Optional[str] = None,
+        pbf_path: Optional[Path] = None,
         lat_col: str = "Latitude",
         lon_col: str = "Longitude",
     ) -> pd.DataFrame:
@@ -245,3 +251,138 @@ class SilverCleaner:
         clean[column_name] = clean[column_name].str.lower().astype("category")
         clean[column_name].unique()
         return clean
+
+    @staticmethod
+    def create_outlet_poi_scores(
+        geo_cleaned: pd.DataFrame,
+        *,
+        pbf_path: Optional[Path] = None,
+        lam: float = 150,
+    ) -> dict[str, int]:
+        """
+        Compute distance-decayed POI accessibility scores for every outlet
+        and write the result as a new silver table ``outlet_poi_scores``.
+
+        Returns a dict ``{"outlet_poi_scores": row_count}`` (or empty if
+        the PBF is unavailable).
+        """
+        if pbf_path is None or not pbf_path.exists():
+            log.info("[POI] No PBF available; skipping POI score computation")
+            return {}
+
+        log.info("[POI] Computing outlet POI scores from %s", pbf_path)
+
+        uniq = geo_cleaned.drop_duplicates(subset=["Outlet_ID"]).copy()
+        outlet_gdf = gpd.GeoDataFrame(
+            uniq,
+            geometry=gpd.points_from_xy(uniq["Longitude"], uniq["Latitude"]),
+            crs="EPSG:4326",
+        )
+
+        log.info("[POI] Extracting all POI categories in a single PBF pass ...")
+        poi_dict = extract_all_poi_categories(pbf_path)
+
+        scores_per_cat: dict[str, pd.Series] = {}
+        for cat in POI_CATEGORIES:
+            pois = poi_dict[cat]
+            cat_scores = compute_outlet_poi_scores(outlet_gdf, pois, lam=lam)
+            scores_per_cat[f"{cat}_score"] = cat_scores
+            log.info(
+                "[POI] %s score — min=%.4f, mean=%.4f, max=%.4f",
+                cat,
+                cat_scores.min(),
+                cat_scores.mean(),
+                cat_scores.max(),
+            )
+
+        scores_df = pd.DataFrame(scores_per_cat)
+        scores_df["Outlet_ID"] = uniq["Outlet_ID"].values
+        scores_df = scores_df[["Outlet_ID"] + list(scores_per_cat.keys())]
+
+        row_count = write_parquet(scores_df, config.SILVER_PATH, "outlet_poi_scores", "silver")
+        log.info("[POI] Computed scores for %d unique outlets", len(uniq))
+        log.info("[POI] Wrote %d outlet POI score row(s)", row_count)
+        return {"outlet_poi_scores": row_count}
+
+
+class GoldCleaner:
+    LAYER = "gold"
+
+    def run(self) -> dict[str, int]:
+        log.info("[%s] Starting gold layer build", self.LAYER.upper())
+
+        tx = read_parquet(config.SILVER_PATH, "transactions_history_final")
+        log.info("[%s] Loaded '%s' with %d row(s)", self.LAYER.upper(), "transactions_history_final", len(tx))
+
+        out = read_parquet(config.SILVER_PATH, "outlet_master")
+        log.info("[%s] Loaded '%s' with %d row(s)", self.LAYER.upper(), "outlet_master", len(out))
+
+        geo = read_parquet(config.SILVER_PATH, "outlet_coordinates")
+        log.info("[%s] Loaded '%s' with %d row(s)", self.LAYER.upper(), "outlet_coordinates", len(geo))
+
+        dist = read_parquet(config.SILVER_PATH, "distributor_seasonality_details")
+        log.info(
+            "[%s] Loaded '%s' with %d row(s)",
+            self.LAYER.upper(),
+            "distributor_seasonality_details",
+            len(dist),
+        )
+
+        hol = read_parquet(config.SILVER_PATH, "holiday_list")
+        log.info("[%s] Loaded '%s' with %d row(s)", self.LAYER.upper(), "holiday_list", len(hol))
+
+        poi = None
+        try:
+            poi = read_parquet(config.SILVER_PATH, "outlet_poi_scores")
+            log.info("[%s] Loaded '%s' with %d row(s)", self.LAYER.upper(), "outlet_poi_scores", len(poi))
+        except Exception:
+            log.info("[%s] 'outlet_poi_scores' not available; skipping POI enrichment", self.LAYER.upper())
+
+        gold = self.build_fact_table(tx, out, geo, dist, hol, poi_scores=poi)
+        log.info("[%s] Built fact table with %d rows x %d cols", self.LAYER.upper(), *gold.shape)
+
+        results: dict[str, int] = {}
+        results["fact_table"] = write_parquet(gold, config.GOLD_PATH, "fact_table", self.LAYER)
+        log.info("[%s] Gold layer build completed (1 table written)", self.LAYER.upper())
+        return results
+
+    @staticmethod
+    def build_fact_table(
+        transactions: pd.DataFrame,
+        outlet_master: pd.DataFrame,
+        outlet_coordinates: pd.DataFrame,
+        distributor_seasonality: pd.DataFrame,
+        holiday_list: pd.DataFrame,
+        poi_scores: Optional[pd.DataFrame] = None,
+    ) -> pd.DataFrame:
+        fact = drop_audit_columns(transactions.copy())
+
+        om = drop_audit_columns(outlet_master.copy())
+        fact = fact.merge(om, on="Outlet_ID", how="left")
+
+        geo = drop_audit_columns(outlet_coordinates.copy())
+        geo = geo.drop_duplicates(subset=["Outlet_ID"]).copy()
+        fact = fact.merge(
+            geo[["Outlet_ID", "Latitude", "Longitude", "coord_status"]],
+            on="Outlet_ID",
+            how="left",
+        )
+
+        ds = drop_audit_columns(distributor_seasonality.copy())
+        fact = fact.merge(ds, on=["Distributor_ID", "Year", "Month"], how="left")
+
+        hl = drop_audit_columns(holiday_list.copy())
+        hol_agg = (
+            hl.groupby(["Year", "Month"], as_index=False)
+            .agg(
+                holiday_count=("Holiday_Name", "count"),
+                holiday_names=("Holiday_Name", lambda x: ", ".join(x.dropna().unique())),
+            )
+        )
+        fact = fact.merge(hol_agg, on=["Year", "Month"], how="left")
+
+        if poi_scores is not None:
+            ps = drop_audit_columns(poi_scores.copy())
+            fact = fact.merge(ps, on="Outlet_ID", how="left")
+
+        return fact
