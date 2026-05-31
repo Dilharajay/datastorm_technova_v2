@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+
+warnings.filterwarnings("ignore", message="Non closed ring detected", category=RuntimeWarning)
 
 log = logging.getLogger("pipeline.poi")
 
