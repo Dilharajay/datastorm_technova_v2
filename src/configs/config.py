@@ -13,6 +13,7 @@ class Config:
     BRONZE_PATH: Path = BASE_PATH / "data" / "bronze"
     SILVER_PATH: Path = BASE_PATH / "data" / "silver"
     GOLD_PATH: Path = BASE_PATH / "data" / "gold"
+    REJECTS_PATH: Path = BASE_PATH / "data" / "rejects"
     EXTRACT_PATH: Path = BASE_PATH / "data" / "extracted" # temporary path for extracted files, auto cleaned
     FIGURES_DIR: Path = BASE_PATH / "figures"
     REPORTS_DIR: Path = BASE_PATH / "reports"
@@ -35,7 +36,7 @@ class Config:
 
     def managed_dirs(self) -> tuple:
         # all directories that should be exist before running the pipeline
-        return (self.RAW_PATH, self.BRONZE_PATH, self.SILVER_PATH, self.GOLD_PATH)
+        return (self.RAW_PATH, self.BRONZE_PATH, self.SILVER_PATH, self.GOLD_PATH, self.REJECTS_PATH)
 
     def pbf_path(self) -> Path:
         """Return the expected path for the configured OSM PBF file."""
