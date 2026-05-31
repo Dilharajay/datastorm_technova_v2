@@ -1,5 +1,5 @@
 # main ingester script to read raw data and write to bronze layer
-# ZIP -> CSV -> extract -> write to bronze in parquet fprmat
+# ZIP -> CSV -> extract -> write to bronze in parquet format
 
 import logging
 import shutil
@@ -16,7 +16,7 @@ class BronzeIngester:
     LAYER = "bronze"
 
     def run(self) -> dict[str, int]:
-        log.info("Starting Bronze Ingester")
+        log.info("[%s] Starting ingestion", self.LAYER.upper())
         results: dict[str, int] = {}
 
         for zip_path in self._discover_zips():
@@ -24,20 +24,25 @@ class BronzeIngester:
             try:
                 csv_files = sorted(extract_root.rglob("*.csv"))
                 if not csv_files:
-                    log.warning("No CSVs found inside... %s skipping...", zip_path.name)
+                    log.warning("[%s] No CSV files found in '%s' — skipping", self.LAYER.upper(), zip_path.name)
                     continue
  
-                log.info("  %s  →  %d CSV(s): %s",
-                         zip_path.name, len(csv_files), [f.name for f in csv_files])
- 
+                log.info(
+                    "[%s] ZIP '%s' contains %d CSV file(s): %s",
+                    self.LAYER.upper(),
+                    zip_path.name,
+                    len(csv_files),
+                    [f.name for f in csv_files],
+                )
+
                 for csv_path in csv_files:
                     table_name = csv_path.stem
-                    row_count  = self._ingest_csv(csv_path, table_name)
+                    row_count = self._ingest_csv(csv_path, table_name)
                     results[table_name] = row_count
             finally:
                 self._cleanup(extract_root)
  
-        log.info("Bronze completed!  (%d tables ingested)", len(results))
+        log.info("[%s] Ingestion completed: %d table(s) written", self.LAYER.upper(), len(results))
         return results
  
     # Private helpers 
@@ -48,7 +53,7 @@ class BronzeIngester:
                 f"No ZIP files found in '{config.RAW_PATH}'. "
                 "Place your source ZIP there and re-run."
             )
-        log.info("Found %d ZIP file(s): %s", len(files), [f.name for f in files])
+        log.info("[%s] Discovered %d ZIP file(s): %s", self.LAYER.upper(), len(files), [f.name for f in files])
         return files
  
     def _extract_zip(self, zip_path: Path) -> Path:
@@ -57,15 +62,16 @@ class BronzeIngester:
             shutil.rmtree(extract_root)
         extract_root.mkdir(parents=True, exist_ok=True)
  
-        log.info("Extracting  %s  →  %s", zip_path.name, extract_root)
+        log.info("[%s] Extracting '%s' to '%s'", self.LAYER.upper(), zip_path.name, extract_root)
         with zipfile.ZipFile(zip_path, "r") as zf:
             for member in zf.namelist():
                 dest = (extract_root / member).resolve()
                 if not str(dest).startswith(str(extract_root.resolve())):
-                    raise ValueError(f"Unsafe path in ZIP: '{member}' — aborting.")
+                    raise ValueError(f"Unsafe path in ZIP: '{member}'")
             zf.extractall(extract_root)
  
-        log.info("  Extracted %d item(s)", len(list(extract_root.rglob("*"))))
+        extracted_items = len(list(extract_root.rglob("*")))
+        log.info("[%s] Extracted %d item(s) from '%s'", self.LAYER.upper(), extracted_items, zip_path.name)
         return extract_root
  
     def _ingest_csv(self, csv_path: Path, table_name: str) -> int:
@@ -76,4 +82,4 @@ class BronzeIngester:
     def _cleanup(self, extract_root: Path) -> None:
         if extract_root.exists():
             shutil.rmtree(extract_root)
-            log.info("Cleaned up temp folder: %s", extract_root)
+            log.info("[%s] Removed temporary extraction folder: %s", self.LAYER.upper(), extract_root)

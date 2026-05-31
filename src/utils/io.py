@@ -17,9 +17,13 @@ def ensure_dirs(*dirs: Path) -> None:
     """
 
     for d in dirs:
+        existed = d.exists()
         d.mkdir(parents=True, exist_ok=True)
-        log.info("Directory ready: %s", d)
- 
+        if existed:
+            log.info("Directory already exists: %s", d)
+        else:
+            log.info("Created directory: %s", d)
+
  
 # Audit columns 
 def add_audit_columns(df: pd.DataFrame, layer: str) -> pd.DataFrame:
@@ -53,8 +57,15 @@ def write_parquet(df: pd.DataFrame, base_dir: Path, table_name: str, layer: str)
     """
     out_path = base_dir / table_name
     out_path.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(out_path / "data.parquet",index=False,compression=config.parquet_compression,engine="pyarrow",)
-    log.info("[%s] %-24s → %s  (%d rows)", layer.upper(), table_name, out_path, len(df))
+    parquet_path = out_path / "data.parquet"
+    df.to_parquet(parquet_path, index=False, compression=config.parquet_compression, engine="pyarrow")
+    log.info(
+        "[%s] Wrote parquet: table='%s', rows=%d, path=%s",
+        layer.upper(),
+        table_name,
+        len(df),
+        parquet_path,
+    )
     return len(df)
  
  
@@ -63,5 +74,6 @@ def read_parquet(base_dir: Path, table_name: str) -> pd.DataFrame:
     Read a Parquet file from the standard location and log the action.
     Returns the loaded DataFrame.
     """
-
-    return pd.read_parquet(base_dir / table_name / "data.parquet", engine="pyarrow")
+    parquet_path = base_dir / table_name / "data.parquet"
+    log.info("Reading parquet: table='%s', path=%s", table_name, parquet_path)
+    return pd.read_parquet(parquet_path)
