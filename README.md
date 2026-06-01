@@ -19,6 +19,8 @@ The project ingests raw competition data from ZIP files, writes a bronze layer i
 ```text
 technova_datastorm_v4/
 ├── run_pipeline.py          # Main entry point
+├── scripts/                 # Training and standalone testing scripts
+├── tests/                   # Unit tests for automated validation
 ├── src/
 │   ├── configs/             # Paths and pipeline configuration
 │   ├── ingest/              # Bronze-layer ingestion
@@ -90,6 +92,29 @@ The pipeline will:
 - clean bronze tables into silver tables
 - log progress to the console
 
+By default, this will run both the data extraction/cleaning (ETL) and the model training. You can selectively run parts of the pipeline using command-line arguments:
+
+```powershell
+# Skip the ETL stages (Bronze, Silver, Gold) and only run model training
+python run_pipeline.py --skip-etl
+
+# Skip model training and only run the ETL stages
+python run_pipeline.py --skip-model
+```
+
+## Testing and Validation
+
+To quickly verify dependencies and the core functionality of the Latent Demand Model (without running the full data ingestion pipeline), you can use the provided demo script:
+
+```powershell
+python scripts/test_latent_demand_model.py
+```
+
+To run the isolated unit test suite:
+```powershell
+pytest tests/
+```
+
 ## Output locations
 
 Each table is written using the following convention:
@@ -144,4 +169,3 @@ The pipeline is organized into small modules:
 - `src/utils/io.py` for directory and Parquet helpers
 
 This makes it straightforward to add a gold layer, additional cleaning rules, or export steps later.
-
