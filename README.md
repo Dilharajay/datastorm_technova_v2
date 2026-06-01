@@ -15,7 +15,7 @@ The project implements a Medallion Lakehouse architecture (Bronze → Silver →
 ## Repository structure
 
 ```text
-technova_datastorm_v4/
+technova_datastrom_v4/
 ├── run_pipeline.py              # Main entry point
 ├── app.py                       # Streamlit web app
 ├── src/
@@ -115,16 +115,31 @@ python run_pipeline.py --skip-model
 
 ## Testing and Validation
 
-To quickly verify dependencies and the core functionality of the Latent Demand Model (without running the full data ingestion pipeline), you can use the provided demo script:
+This project includes scripts to test and run the model training in isolation.
+
+### Quick Functionality Check
+
+To quickly verify dependencies and demonstrate the core functionality of the `LatentDemandModel`'s components (like censoring scoring and the Tobit model) without running the full data ingestion pipeline, you can use the provided demo script:
 
 ```powershell
 python scripts/test_latent_demand_model.py
 ```
 
-To run the isolated unit test suite:
+This script uses dummy data and does **not** train the full model.
+
+### Standalone Model Training
+
+To run the complete model training process in isolation (using the data from the Gold layer), use the training script:
+
 ```powershell
-pytest tests/
+python scripts/train_latent_demand_model.py
 ```
+
+This will:
+1. Load the `fact_table` from the `data/gold/` directory.
+2. Train the two-stage latent demand model.
+3. Save the trained model artifacts to `data/gold/latent_demand_model/`.
+4. Generate and save predictions for January 2026 to `data/gold/latent_demand_predictions_jan2026.parquet`.
 
 ## Output locations
 
