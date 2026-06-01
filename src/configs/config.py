@@ -26,6 +26,9 @@ class Config:
     OSM_PBF_NAME: str = "sri-lanka-latest.osm.pbf"
     """Alt name sri-lanka-latest.osm.pbf"""
 
+    MODEL_PATH: Path = BASE_PATH / "models"
+    PREDICTION_PATH: Path = BASE_PATH / "predictions"
+
     # write options
     parquet_compression: Literal["snappy", "gzip", "brotli", "lz4", "zstd"] = "zstd"
 

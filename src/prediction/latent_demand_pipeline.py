@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from src.configs.config import config
-from src.utils.io import read_parquet
+from src.utils.io import read_parquet, write_parquet
 from src.prediction.latent_demand_model import LatentDemandModel
 
 log = logging.getLogger("pipeline.latent_demand")
@@ -37,7 +37,7 @@ def train_latent_demand_model(
         Dictionary with results including metrics and predictions file path
     """
     if model_output_dir is None:
-        model_output_dir = config.GOLD_PATH / "latent_demand_model"
+        model_output_dir = config.MODEL_PATH / "latent_demand_model"
 
     if train_years is None:
         train_years = [2023, 2024]
@@ -96,9 +96,18 @@ def train_latent_demand_model(
 
     import numpy as np
 
+    # Calculate lags on full dataset before getting latest
+    df_wide_sorted = df_wide.sort_values(["Outlet_ID", "Distributor_ID", "SKU_ID", "Year", "Month"])
+    df_wide_sorted["vol_lag_1"] = df_wide_sorted.groupby(["Outlet_ID", "Distributor_ID", "SKU_ID"])["Volume_Liters"].shift(1)
+    df_wide_sorted["vol_lag_12"] = df_wide_sorted.groupby(["Outlet_ID", "Distributor_ID", "SKU_ID"])["Volume_Liters"].shift(12)
+    df_wide_sorted["rolling3_avg"] = (
+        df_wide_sorted.groupby(["Outlet_ID", "Distributor_ID", "SKU_ID"])["Volume_Liters"]
+        .transform(lambda x: x.rolling(3, min_periods=2).mean().shift(1))
+    )
+
     # Get latest observations
     latest_wide = (
-        df_wide.sort_values(["Outlet_ID", "Distributor_ID", "SKU_ID", "Year", "Month"])
+        df_wide_sorted
         .groupby(["Outlet_ID", "Distributor_ID", "SKU_ID"])
         .last()
         .reset_index()
@@ -110,6 +119,12 @@ def train_latent_demand_model(
     pred_data["Month"] = prediction_month
     pred_data["month_sin"] = np.sin(2 * np.pi * prediction_month / 12)
     pred_data["month_cos"] = np.cos(2 * np.pi * prediction_month / 12)
+    
+    # Calculate correct lags for prediction target
+    # vol_lag_1 is the last actual volume (from latest_wide["Volume_Liters"])
+    pred_data["vol_lag_1"] = pred_data.get("Volume_Liters", pred_data["vol_lag_1"])
+    # Note: We keep the Notebook's logic for rolling3_avg where it takes the previous month's rolling avg if available.
+    pred_data["rolling3_avg"] = pred_data.get("rolling3_avg", pred_data["Volume_Liters"])
 
     # Add outlet features from latest aggregated data
     latest_agg = df_agg.sort_values(["Outlet_ID", "Year", "Month"]).groupby("Outlet_ID").last().reset_index()
@@ -139,9 +154,9 @@ def train_latent_demand_model(
     ).reset_index()
 
     # Save predictions
-    pred_output = config.GOLD_PATH / f"latent_demand_predictions_{prediction_year}_{prediction_month:02d}.parquet"
-    outlet_predictions.to_parquet(pred_output, index=False)
-    log.info(f"Predictions saved to {pred_output}")
+    pred_output = config.PREDICTION_PATH / f"latent_demand_predictions_{prediction_year}_{prediction_month:02d}.parquet"
+    rows = write_parquet(outlet_predictions, config.PREDICTION_PATH, f"latent_demand_predictions_{prediction_year}_{prediction_month:02d}", "gold")
+    log.info(f"Predictions saved to {pred_output} of {rows} rows")
 
     # Compile results
     results = {
@@ -178,4 +193,3 @@ if __name__ == "__main__":
     )
 
     train_latent_demand_model()
-

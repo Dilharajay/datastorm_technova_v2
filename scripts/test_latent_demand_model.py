@@ -158,11 +158,6 @@ def main():
         log.info("=" * 70)
         log.info("✓ ALL CHECKS PASSED")
         log.info("=" * 70)
-        log.info("\nNext steps:")
-        log.info("  1. Run: python -m scripts.train_latent_demand_model")
-        log.info("  2. Check: data/gold/latent_demand_model/")
-        log.info("  3. Review: docs/LATENT_DEMAND_MODEL.md")
-        log.info("=" * 70)
 
         return True
 
