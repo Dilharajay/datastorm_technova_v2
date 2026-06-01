@@ -8,6 +8,7 @@ import geopandas as gpd
 import pandas as pd
 
 from src.configs.config import config
+from src.utils.catchment_density import compute_competition_density
 from src.utils.cleaning_utils import (
     add_year_month_from_date,
     clean_and_verify_outlet_coordinates,
@@ -199,6 +200,16 @@ class SilverCleaner:
             len(geo_valid),
             len(geo_reject),
         )
+        # ── Competition Density (uses deduplicated geo_valid) ─────────
+        if not geo_valid.empty:
+            catch = compute_competition_density(geo_valid)
+            geo_valid = geo_valid.merge(catch, on="Outlet_ID", how="left")
+            geo_valid["competition_density"] = geo_valid["competition_density"].fillna(0).astype(int)
+            log.info(
+                "[%s] Added competition_density column to outlet_coordinates",
+                self.LAYER.upper(),
+            )
+
         results["outlet_coordinates"] = write_parquet(
             geo_valid, config.SILVER_PATH, "outlet_coordinates", self.LAYER
         )
@@ -598,10 +609,13 @@ class GoldCleaner:
 
         geo = drop_audit_columns(outlet_coordinates.copy())
         geo = geo.drop_duplicates(subset=["Outlet_ID"]).copy()
+        geo_cols = ["Outlet_ID", "Latitude", "Longitude", "coord_status"]
+        if "competition_density" in geo.columns:
+            geo_cols.append("competition_density")
         fact = fact.merge(
-            geo[["Outlet_ID", "Latitude", "Longitude", "coord_status"]],
+            geo[geo_cols],
             on="Outlet_ID",
-            how="inner",
+            how="left",
         )
 
         ds = drop_audit_columns(distributor_seasonality.copy())

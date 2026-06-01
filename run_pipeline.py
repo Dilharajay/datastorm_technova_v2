@@ -11,6 +11,7 @@ from src.configs.config import config
 from src.utils.io import ensure_dirs
 from src.ingest.ingester import BronzeIngester
 from src.cleaning.cleaner import GoldCleaner, SilverCleaner
+from src.optimization.budget_optimizer import BudgetOptimizer
 from src.prediction.latent_demand_pipeline import train_latent_demand_model
 
 logging.basicConfig(
@@ -73,6 +74,13 @@ def main(run_etl: bool = True, run_model: bool = True) -> None:
             except Exception as latent_exc:
                 log.warning("Latent Demand Model training failed (pipeline continues): %s", latent_exc)
                 latent_results = {"status": "failed", "error": str(latent_exc)}
+
+        budget_results = BudgetOptimizer().run()
+        log.info(
+            "[RUNNER] Budget optimization: %d outlets funded, total spend LKR %.0f",
+            (budget_results["Trade_Spend_LKR"] > 0).sum(),
+            budget_results["Trade_Spend_LKR"].sum(),
+        )
 
         elapsed = (datetime.now(timezone.utc) - start).total_seconds()
         log.info("=" * 55)
