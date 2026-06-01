@@ -103,6 +103,29 @@ uv run streamlit run app.py
 - **XAI** — Ollama-generated business explanations per outlet
 - **Streamlit Dashboard** — Browse predictions, filter by province/distributor, drill into outlet detail
 
+By default, this will run both the data extraction/cleaning (ETL) and the model training. You can selectively run parts of the pipeline using command-line arguments:
+
+```powershell
+# Skip the ETL stages (Bronze, Silver, Gold) and only run model training
+python run_pipeline.py --skip-etl
+
+# Skip model training and only run the ETL stages
+python run_pipeline.py --skip-model
+```
+
+## Testing and Validation
+
+To quickly verify dependencies and the core functionality of the Latent Demand Model (without running the full data ingestion pipeline), you can use the provided demo script:
+
+```powershell
+python scripts/test_latent_demand_model.py
+```
+
+To run the isolated unit test suite:
+```powershell
+pytest tests/
+```
+
 ## Output locations
 
 Each table is written using the convention:
