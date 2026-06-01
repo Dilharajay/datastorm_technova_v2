@@ -34,6 +34,7 @@ ENV/
 Thumbs.db
 
 # Local project data and pipeline outputs
+data/rejects/*
 data/raw/*
 data/extracted/*
 data/bronze/*
