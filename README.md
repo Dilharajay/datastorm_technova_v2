@@ -1,96 +1,107 @@
 # Technova DataStorm V4
 
-An end-to-end data pipeline for the Technova DataStorm competition.
+An end-to-end data pipeline for the Technova DataStorm v7.0 Final Round competition.
 
-The project ingests raw competition data from ZIP files, writes a bronze layer in Parquet format, and then performs a set of cleaning and enrichment steps to produce a silver layer. It also supports optional geographic validation using Sri Lanka OSM boundary data.
+The project implements a Medallion Lakehouse architecture (Bronze → Silver → Gold) to estimate latent (unconstrained) demand for 20,000 traditional trade outlets in Sri Lanka, allocate a LKR 5M promotional budget, and provide an interactive intelligence dashboard.
 
 ## What the pipeline does
 
-1. Creates the managed data directories if they do not already exist.
-2. Discovers ZIP files in `data/raw/`.
-3. Extracts CSV files from each ZIP safely.
-4. Writes raw tables to `data/bronze/<table_name>/data.parquet` with audit columns.
-5. Reads bronze tables and applies cleaning rules.
-6. Writes cleaned tables to `data/silver/<table_name>/data.parquet`.
-7. Optionally downloads or uses a local Sri Lanka OSM PBF file for outlet coordinate verification.
+1. **Bronze** — Ingests raw competition ZIP files, extracts CSVs, writes Parquet with audit columns.
+2. **Silver** — Cleans and normalizes 6 tables: transactions, outlet master, outlet coordinates, distributor seasonality, holidays, and POI scores. Also computes **competitive catchment density** (outlets within 500m).
+3. **Gold** — Builds a fact table merging all silver tables for modeling.
+4. **Budget Optimization** — PuLP linear program allocating LKR 5M across Western Province outlets to maximize incremental volume.
+5. **XAI** — Generates human-readable explanations for each outlet's predicted score (Ollama local LLM with template fallback).
 
 ## Repository structure
 
 ```text
 technova_datastorm_v4/
-├── run_pipeline.py          # Main entry point
-├── scripts/                 # Training and standalone testing scripts
-├── tests/                   # Unit tests for automated validation
+├── run_pipeline.py              # Main entry point
+├── app.py                       # Streamlit web app
 ├── src/
-│   ├── configs/             # Paths and pipeline configuration
-│   ├── ingest/              # Bronze-layer ingestion
-│   ├── cleaning/            # Silver-layer cleaning logic
-│   └── utils/               # Shared I/O and cleaning helpers
+│   ├── configs/                 # Paths and pipeline configuration
+│   ├── ingest/                  # Bronze-layer ingestion
+│   ├── cleaning/                # Silver-layer cleaning logic
+│   ├── optimization/            # Budget optimizer (PuLP)
+│   ├── xai/                     # Outlet explainer (Ollama)
+│   └── utils/                   # I/O, cleaning, eda, POI, catchment helpers
 ├── data/
-│   ├── raw/                 # Place source ZIP files here
-│   ├── bronze/              # Bronze Parquet outputs
-│   ├── silver/              # Silver Parquet outputs
-│   ├── gold/                # Reserved for downstream outputs
-│   └── extracted/           # Temporary extraction folder
-├── figures/                 # EDA / analysis figures
-├── notebooks/               # Working notebooks
+│   ├── raw/                     # Place source ZIP files here
+│   ├── bronze/                  # Bronze Parquet outputs
+│   ├── silver/                  # Silver Parquet outputs
+│   ├── gold/                    # Gold fact table + predictions
+│   └── rejects/                 # Rejected records store
+├── figures/                     # EDA / analysis figures
+├── notebooks/                   # EDA and modeling notebooks
+│   ├── eda.ipynb                # Exploratory data analysis
+│   ├── model_pytorch_faster.ipynb  # Latent demand estimation
+│   └── check_gold.ipynb         # Gold layer validation
 └── pyproject.toml
 ```
 
 ## Requirements
 
 - Python 3.13+
-- `pandas`
-- `numpy`
-- `pyarrow`
-- `geopandas`
-- `scipy`
-- `matplotlib`
+- Dependencies managed via `uv` (see `pyproject.toml`)
 
-The project uses `pyproject.toml` and can be installed with your preferred Python tooling.
+## Quick Start
 
-### Using `uv`
+### 1. Install dependencies
 
-```powershell
+```bash
 uv sync
 ```
 
-### Using `pip`
+> Note: `torch` is excluded from default deps. For the Tobit baseline in the model notebook, install manually:
+> ```bash
+> uv add torch
+> ```
 
-```powershell
-python -m pip install -U pip
-python -m pip install -e .
+### 2. Run the full pipeline
+
+```bash
+uv run python run_pipeline.py
 ```
 
-## Input data
+This runs: Bronze ingester → Silver cleaner (incl. catchment density) → Gold fact table → Budget optimizer → XAI explanations.
 
-Place the competition ZIP file(s) in:
+### 3. Run notebooks
 
-```text
-data/raw/
+```bash
+# EDA (includes competition density analysis)
+uv run jupyter nbconvert --to notebook --execute notebooks/eda.ipynb --output eda_executed.ipynb
+
+# Model (latent demand estimation)
+uv run jupyter nbconvert --to notebook --execute notebooks/model_pytorch_faster.ipynb --output model_executed.ipynb
+
+# Gold validation
+uv run jupyter nbconvert --to notebook --execute notebooks/check_gold.ipynb --output check_gold_executed.ipynb
 ```
 
-The ingester looks for `*.zip` files in that folder. Each ZIP should contain one or more CSV files. The expected output table name is derived from each CSV filename.
+### 4. Launch the web app
 
-This repository already includes processed Bronze and Silver Parquet outputs under:
-
-- `data/bronze/`
-- `data/silver/`
-
-## Running the pipeline
-
-From the project root:
-
-```powershell
-python run_pipeline.py
+```bash
+uv run streamlit run app.py
 ```
 
-The pipeline will:
+## Deliverables
 
-- create any missing managed directories
-- ingest raw ZIP files into bronze tables
-- clean bronze tables into silver tables
-- log progress to the console
+| File | Description |
+|------|-------------|
+| `data/teamname_predictions.csv` | Outlet_ID + Maximum_Monthly_Liters for Jan 2026 |
+| `reports/teamname_budget_allocations.csv` | Western Province trade spend allocation |
+| `reports/teamname_outlet_explanations.csv` | Per-outlet XAI narratives |
+| `notebooks/predictions_jan2026.parquet` | Full prediction output with confidence intervals |
+
+## Key features
+
+- **Competitive Catchment Density** — counts competing outlets within 500m using spatial joins (EPSG:5235 metric CRS)
+- **POI Distance-Decay Scoring** — exponential decay scores for schools, hospitals, bus stops, tourist attractions
+- **Censoring Detection** — 6 proxy rules detecting supply-constrained observations
+- **Latent Demand Model** — Two-stage: Tobit + XGBoost on de-censored series (MAE 4.87, R² 0.985)
+- **Budget Optimization** — PuLP LP solver maximizing incremental volume under LKR 5M constraint
+- **XAI** — Ollama-generated business explanations per outlet
+- **Streamlit Dashboard** — Browse predictions, filter by province/distributor, drill into outlet detail
 
 By default, this will run both the data extraction/cleaning (ETL) and the model training. You can selectively run parts of the pipeline using command-line arguments:
 
@@ -117,55 +128,14 @@ pytest tests/
 
 ## Output locations
 
-Each table is written using the following convention:
+Each table is written using the convention:
 
 ```text
 data/<layer>/<table_name>/data.parquet
 ```
 
-### Bronze layer
-
-Bronze tables are created directly from the raw CSV files and include audit columns:
-
-- `_layer`
-- `_loaded_at`
-- `_pipeline_run`
-
-### Silver layer
-
-Silver tables apply cleaning and normalization rules, including:
-
-- transaction volume sanitization and flags
-- outlet size/type normalization
-- seasonality text cleanup
-- holiday date parsing and `Year` / `Month` derivation
-- outlet coordinate validation when an OSM PBF file is available
-
-## OSM boundary file
-
-The cleaning step for outlet coordinates can optionally use the Sri Lanka OSM extract.
-
-- Default download URL: `https://download.geofabrik.de/asia/sri-lanka-latest.osm.pbf`
-- Expected local filename: `data/raw/sri_lanka-latest.osm.pbf`
-
-If the file is not available, the pipeline falls back to basic coordinate cleaning.
-
-## Notebooks and analysis
-
-The `notebooks/` folder contains exploratory and cleaning notebooks used during development. The `figures/` folder stores generated charts from EDA and validation work.
-
-## Notes
-
-- The pipeline is designed to be run from the repository root.
-- Temporary extraction files are written to `data/extracted/` and cleaned up automatically.
-- If no ZIP file is present in `data/raw/`, ingestion will stop with a clear error message.
-
-## Extending the project
-
-The pipeline is organized into small modules:
-
-- `src/ingest/ingester.py` for raw ingestion
-- `src/cleaning/cleaner.py` for silver-layer transformations
-- `src/utils/io.py` for directory and Parquet helpers
-
-This makes it straightforward to add a gold layer, additional cleaning rules, or export steps later.
+Managed layers:
+- `data/bronze/` — raw ingested tables
+- `data/silver/` — cleaned tables with audit columns
+- `data/gold/` — fact table, predictions, budget allocations
+- `data/rejects/` — rejected records with `_reject_reason`
