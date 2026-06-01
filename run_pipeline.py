@@ -10,6 +10,7 @@ from src.configs.config import config
 from src.utils.io import ensure_dirs
 from src.ingest.ingester import BronzeIngester
 from src.cleaning.cleaner import GoldCleaner, SilverCleaner
+from src.feature_engineering.build_stats import StatsBuilder
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,6 +30,7 @@ def main() -> None:
     try:
         bronze_results = BronzeIngester().run()
         silver_results = SilverCleaner().run()
+        stats_results = StatsBuilder().run()
         gold_results = GoldCleaner().run()
 
         elapsed = (datetime.now(timezone.utc) - start).total_seconds()
@@ -36,6 +38,7 @@ def main() -> None:
         log.info("Pipeline finished in %.1f seconds", elapsed)
         log.info("  Bronze : %s", list(bronze_results.keys()))
         log.info("  Silver : %s", list(silver_results.keys()))
+        log.info("  Silver : %s", list(stats_results.keys()))
         log.info("  Gold   : %s", list(gold_results.keys()))
         log.info("=" * 55)
 
