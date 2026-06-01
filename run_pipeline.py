@@ -10,6 +10,7 @@ from src.configs.config import config
 from src.utils.io import ensure_dirs
 from src.ingest.ingester import BronzeIngester
 from src.cleaning.cleaner import GoldCleaner, SilverCleaner
+from src.optimization.budget_optimizer import BudgetOptimizer
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,6 +31,13 @@ def main() -> None:
         bronze_results = BronzeIngester().run()
         silver_results = SilverCleaner().run()
         gold_results = GoldCleaner().run()
+
+        budget_results = BudgetOptimizer().run()
+        log.info(
+            "[RUNNER] Budget optimization: %d outlets funded, total spend LKR %.0f",
+            (budget_results["Trade_Spend_LKR"] > 0).sum(),
+            budget_results["Trade_Spend_LKR"].sum(),
+        )
 
         elapsed = (datetime.now(timezone.utc) - start).total_seconds()
         log.info("=" * 55)
