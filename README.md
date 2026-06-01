@@ -1,156 +1,113 @@
-# Technova DataStorm V4
+# OCTAVE – John Keells Group: Latent Demand & Budget Optimization Engine
 
-An end-to-end data pipeline for the Technova DataStorm v7.0 Final Round competition.
+This repository contains the end-to-end solution for the Final Round of the Data Storm v7.0 competition, powered by John Keells Group. The project is designed to shift a leading beverage manufacturer's strategy from historical-based allocation to a forward-looking, potential-based model.
 
-The project implements a Medallion Lakehouse architecture (Bronze → Silver → Gold) to estimate latent (unconstrained) demand for 20,000 traditional trade outlets in Sri Lanka, allocate a LKR 5M promotional budget, and provide an interactive intelligence dashboard.
+The core objective is to estimate the **Maximum Monthly Purchase Potential** for 20,000 traditional trade outlets and use this insight to drive strategic decisions, including the optimized allocation of a promotional budget.
 
-## What the pipeline does
+## Advanced Problem Statement
 
-1. **Bronze** — Ingests raw competition ZIP files, extracts CSVs, writes Parquet with audit columns.
-2. **Silver** — Cleans and normalizes 6 tables: transactions, outlet master, outlet coordinates, distributor seasonality, holidays, and POI scores. Also computes **competitive catchment density** (outlets within 500m).
-3. **Gold** — Builds a fact table merging all silver tables for modeling.
-4. **Budget Optimization** — PuLP linear program allocating LKR 5M across Western Province outlets to maximize incremental volume.
-5. **XAI** — Generates human-readable explanations for each outlet's predicted score (Ollama local LLM with template fallback).
+This solution directly addresses the three core challenges of the final round:
 
-## Repository structure
+1.  **Spatial Distance-Decay Modeling:** Implements a non-linear distance-decay model (Exponential Decay) to weigh the influence of nearby Points of Interest (POIs) more heavily, providing a nuanced understanding of an outlet's location.
+2.  **Competitive Catchment Density:** Calculates the density of competing outlets within a 500-meter radius to adjust sales potential based on market saturation and competitive intensity.
+3.  **Marketing Spend Optimization:** Utilizes a linear programming model to allocate a **LKR 5 Million** promotional budget across outlets in the Western Province, aiming to maximize additional sales volume for January 2026.
+
+## Key Features
+
+-   **Medallion Lakehouse Architecture:** A robust, idempotent pipeline that processes data through Bronze (raw), Silver (cleaned & enriched), and Gold (aggregated for modeling) layers.
+-   **Advanced Feature Engineering:**
+    -   **Competitive Catchment Density:** Uses spatial joins (EPSG:5235) to count competitors within a 500m radius.
+    -   **POI Distance-Decay Scoring:** Applies exponential decay functions to score the influence of schools, hospitals, bus stops, and tourist attractions.
+-   **Two-Stage Latent Demand Model:**
+    1.  **Censoring Detection:** Employs proxy rules to identify and score observations where sales were likely constrained by supply issues.
+    2.  **Potential Estimation:** Uses a Tobit model to handle censored data, followed by an XGBoost model to predict the de-censored, latent demand (MAE 4.87, R² 0.985).
+-   **Budget Optimization:** A PuLP-based linear programming solver that allocates the LKR 5M budget to maximize incremental volume.
+-   **Functional Explainable AI (XAI):** Integrates a local LLM (Ollama) to generate dynamic, business-friendly explanations for each outlet's predicted potential, detailing the key drivers and environmental factors.
+-   **Interactive Intelligence Dashboard:** A Streamlit web application that allows users to browse predictions, filter by province and distributor, and drill down into a detailed view for any outlet, including its XAI-generated narrative.
+
+## Repository Structure
 
 ```text
-technova_datastrom_v4/
-├── run_pipeline.py              # Main entry point
-├── app.py                       # Streamlit web app
+technova_datastrom_v3/
+├── run_pipeline.py              # Main entry point to run the full ETL and modeling pipeline
+├── app.py                       # The Streamlit web application
 ├── src/
 │   ├── configs/                 # Paths and pipeline configuration
-│   ├── ingest/                  # Bronze-layer ingestion
-│   ├── cleaning/                # Silver-layer cleaning logic
-│   ├── optimization/            # Budget optimizer (PuLP)
-│   ├── xai/                     # Outlet explainer (Ollama)
-│   └── utils/                   # I/O, cleaning, eda, POI, catchment helpers
+│   ├── ingest/                  # Bronze-layer: Raw data ingestion
+│   ├── cleaning/                # Silver-layer: Cleaning, normalization, and feature engineering
+│   ├── optimization/            # PuLP-based budget optimizer
+│   ├── prediction/              # Latent demand estimation model
+│   └── xai/                     # Outlet explanation generator (Ollama)
 ├── data/
-│   ├── raw/                     # Place source ZIP files here
+│   ├── raw/                     # Source CSVs and external data
 │   ├── bronze/                  # Bronze Parquet outputs
 │   ├── silver/                  # Silver Parquet outputs
-│   ├── gold/                    # Gold fact table + predictions
-│   └── rejects/                 # Rejected records store
-├── figures/                     # EDA / analysis figures
+│   ├── gold/                    # Gold fact table, predictions, and model artifacts
+│   └── rejects/                 # Rejected records store for data quality assurance
 ├── notebooks/                   # EDA and modeling notebooks
-│   ├── eda.ipynb                # Exploratory data analysis
-│   ├── model_pytorch_faster.ipynb  # Latent demand estimation
-│   └── check_gold.ipynb         # Gold layer validation
-└── pyproject.toml
+└── scripts/
+    ├── test_latent_demand_model.py   # Demo script to check dependencies and component functionality
+    └── train_latent_demand_model.py  # Standalone script to train the model from Gold-layer data
 ```
-
-## Requirements
-
-- Python 3.13+
-- Dependencies managed via `uv` (see `pyproject.toml`)
 
 ## Quick Start
 
-### 1. Install dependencies
+### 1. Install Dependencies
+
+The project uses `uv` for dependency management.
 
 ```bash
 uv sync
 ```
 
-> Note: `torch` is excluded from default deps. For the Tobit baseline in the model notebook, install manually:
-> ```bash
-> uv add torch
-> ```
+### 2. Run the Full Pipeline
 
-### 2. Run the full pipeline
+This command executes the entire data pipeline from raw data ingestion to model training, prediction, and budget optimization.
 
 ```bash
 uv run python run_pipeline.py
 ```
 
-This runs: Bronze ingester → Silver cleaner (incl. catchment density) → Gold fact table → Budget optimizer → XAI explanations.
+You can run specific parts of the pipeline using flags:
+-   `--skip-etl`: Skips the Bronze, Silver, and Gold stages.
+-   `--skip-model`: Skips model training, prediction, and optimization.
 
-### 3. Run notebooks
+### 3. Launch the Outlet Intelligence Web App
 
-```bash
-# EDA (includes competition density analysis)
-uv run jupyter nbconvert --to notebook --execute notebooks/eda.ipynb --output eda_executed.ipynb
-
-# Model (latent demand estimation)
-uv run jupyter nbconvert --to notebook --execute notebooks/model_pytorch_faster.ipynb --output model_executed.ipynb
-
-# Gold validation
-uv run jupyter nbconvert --to notebook --execute notebooks/check_gold.ipynb --output check_gold_executed.ipynb
-```
-
-### 4. Launch the web app
+To start the interactive dashboard:
 
 ```bash
 uv run streamlit run app.py
 ```
 
-## Deliverables
+## Standalone Scripts
 
-| File | Description |
-|------|-------------|
-| `data/teamname_predictions.csv` | Outlet_ID + Maximum_Monthly_Liters for Jan 2026 |
-| `reports/teamname_budget_allocations.csv` | Western Province trade spend allocation |
-| `reports/teamname_outlet_explanations.csv` | Per-outlet XAI narratives |
-| `notebooks/predictions_jan2026.parquet` | Full prediction output with confidence intervals |
+### Functionality Check
 
-## Key features
-
-- **Competitive Catchment Density** — counts competing outlets within 500m using spatial joins (EPSG:5235 metric CRS)
-- **POI Distance-Decay Scoring** — exponential decay scores for schools, hospitals, bus stops, tourist attractions
-- **Censoring Detection** — 6 proxy rules detecting supply-constrained observations
-- **Latent Demand Model** — Two-stage: Tobit + XGBoost on de-censored series (MAE 4.87, R² 0.985)
-- **Budget Optimization** — PuLP LP solver maximizing incremental volume under LKR 5M constraint
-- **XAI** — Ollama-generated business explanations per outlet
-- **Streamlit Dashboard** — Browse predictions, filter by province/distributor, drill into outlet detail
-
-By default, this will run both the data extraction/cleaning (ETL) and the model training. You can selectively run parts of the pipeline using command-line arguments:
-
-```powershell
-# Skip the ETL stages (Bronze, Silver, Gold) and only run model training
-python run_pipeline.py --skip-etl
-
-# Skip model training and only run the ETL stages
-python run_pipeline.py --skip-model
-```
-
-## Testing and Validation
-
-This project includes scripts to test and run the model training in isolation.
-
-### Quick Functionality Check
-
-To quickly verify dependencies and demonstrate the core functionality of the `LatentDemandModel`'s components (like censoring scoring and the Tobit model) without running the full data ingestion pipeline, you can use the provided demo script:
+To quickly verify dependencies and see a demonstration of the model's components with dummy data, run:
 
 ```powershell
 python scripts/test_latent_demand_model.py
 ```
 
-This script uses dummy data and does **not** train the full model.
-
 ### Standalone Model Training
 
-To run the complete model training process in isolation (using the data from the Gold layer), use the training script:
+To run only the model training process using the fact table from the `data/gold/` directory:
 
 ```powershell
 python scripts/train_latent_demand_model.py
 ```
 
-This will:
-1. Load the `fact_table` from the `data/gold/` directory.
-2. Train the two-stage latent demand model.
-3. Save the trained model artifacts to `data/gold/latent_demand_model/`.
-4. Generate and save predictions for January 2026 to `data/gold/latent_demand_predictions_jan2026.parquet`.
+This will train the model, save the artifacts, and generate predictions.
 
-## Output locations
+## Final Deliverables
 
-Each table is written using the convention:
+This repository generates the following key outputs as required:
 
-```text
-data/<layer>/<table_name>/data.parquet
-```
+| File | Description |
+|------------------------------------------------|----------------------------------------------------------------|
+| `data/gold/teamname_predictions.csv` | **Latent Potential Output:** Outlet_ID and predicted Maximum_Monthly_Liters for Jan 2026. |
+| `data/gold/teamname_budget_allocations.csv` | **Marketing Spend Allocation:** Outlet_ID and the allocated Trade Spend (LKR) for Western Province. |
+| `app.py` | **Outlet Intelligence Web App:** The interactive Streamlit dashboard. |
 
-Managed layers:
-- `data/bronze/` — raw ingested tables
-- `data/silver/` — cleaned tables with audit columns
-- `data/gold/` — fact table, predictions, budget allocations
-- `data/rejects/` — rejected records with `_reject_reason`
+The full codebase, methodology paper, and executive pitch deck are provided as part of the final submission package.
