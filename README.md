@@ -4,6 +4,11 @@ An end-to-end data pipeline for the Technova DataStorm v7.0 Final Round competit
 
 The project implements a Medallion Lakehouse architecture (Bronze → Silver → Gold) to estimate latent (unconstrained) demand for 20,000 traditional trade outlets in Sri Lanka, allocate a LKR 5M promotional budget, and provide an interactive intelligence dashboard.
 
+## Dashboard Preview
+
+![Dashboard overview](assets/1.avif)
+![Dashboard overview](assets/2.avif)
+
 ## What the pipeline does
 
 1. **Bronze** — Ingests raw competition ZIP files, extracts CSVs, writes Parquet with audit columns.
@@ -119,11 +124,6 @@ To quickly verify dependencies and the core functionality of the Latent Demand M
 
 ```powershell
 python scripts/test_latent_demand_model.py
-```
-
-To run the isolated unit test suite:
-```powershell
-pytest tests/
 ```
 
 ## Output locations
