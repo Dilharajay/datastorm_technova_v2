@@ -15,7 +15,7 @@ The project implements a Medallion Lakehouse architecture (Bronze → Silver →
 2. **Silver** — Cleans and normalizes 6 tables: transactions, outlet master, outlet coordinates, distributor seasonality, holidays, and POI scores. Also computes **competitive catchment density** (outlets within 500m).
 3. **Gold** — Builds a fact table merging all silver tables for modeling.
 4. **Budget Optimization** — PuLP linear program allocating LKR 5M across Western Province outlets to maximize incremental volume.
-5. **XAI** — Generates human-readable explanations for each outlet's predicted score (Ollama local LLM with template fallback).
+5. **XAI** — Generates human-readable explanations for each outlet's predicted score (Groq LLM with template fallback).
 
 ## Repository structure
 
@@ -28,7 +28,7 @@ technova_datastorm_v4/
 │   ├── ingest/                  # Bronze-layer ingestion
 │   ├── cleaning/                # Silver-layer cleaning logic
 │   ├── optimization/            # Budget optimizer (PuLP)
-│   ├── xai/                     # Outlet explainer (Ollama)
+│   ├── xai/                     # Outlet explainer (Groq)
 │   └── utils/                   # I/O, cleaning, eda, POI, catchment helpers
 ├── data/
 │   ├── raw/                     # Place source ZIP files here
@@ -62,7 +62,17 @@ uv sync
 > uv add torch
 > ```
 
-### 2. Run the full pipeline
+### 2. Configure the Groq API key
+
+The XAI step uses the Groq API. Copy the example env file and add your key:
+
+```bash
+cp .env.example .env
+```
+
+Then open `.env` and replace `paste you key here` with your real `GROQ_API_KEY`.
+
+### 3. Run the full pipeline
 
 ```bash
 uv run python run_pipeline.py
@@ -70,7 +80,7 @@ uv run python run_pipeline.py
 
 This runs: Bronze ingester → Silver cleaner (incl. catchment density) → Gold fact table → Budget optimizer → XAI explanations.
 
-### 3. Run notebooks
+### 4. Run notebooks
 
 ```bash
 # EDA (includes competition density analysis)
@@ -83,7 +93,7 @@ uv run jupyter nbconvert --to notebook --execute notebooks/model_pytorch_faster.
 uv run jupyter nbconvert --to notebook --execute notebooks/check_gold.ipynb --output check_gold_executed.ipynb
 ```
 
-### 4. Launch the web app
+### 5. Launch the web app
 
 ```bash
 uv run streamlit run app.py
@@ -105,7 +115,7 @@ uv run streamlit run app.py
 - **Censoring Detection** — 6 proxy rules detecting supply-constrained observations
 - **Latent Demand Model** — Two-stage: Tobit + XGBoost on de-censored series (MAE 4.87, R² 0.985)
 - **Budget Optimization** — PuLP LP solver maximizing incremental volume under LKR 5M constraint
-- **XAI** — Ollama-generated business explanations per outlet
+- **XAI** — Groq-generated business explanations per outlet
 - **Streamlit Dashboard** — Browse predictions, filter by province/distributor, drill into outlet detail
 
 By default, this will run both the data extraction/cleaning (ETL) and the model training. You can selectively run parts of the pipeline using command-line arguments:
